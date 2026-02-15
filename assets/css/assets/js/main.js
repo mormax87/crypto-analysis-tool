@@ -1,4 +1,4 @@
-document.getElementById("analyzeBtn").addEventListener("click", () => {
+document.getElementById("analyzeBtn").addEventListener("click", async () => {
   const input = document.getElementById("symbols").value;
   const results = document.getElementById("results");
 
@@ -11,10 +11,43 @@ document.getElementById("analyzeBtn").addEventListener("click", () => {
     .split(",")
     .map(p => p.trim().toUpperCase());
 
-  results.innerHTML = `
-    <h3>Requested pairs:</h3>
-    <ul>
-      ${pairs.map(p => `<li>${p}</li>`).join("")}
-    </ul>
-  `;
+  results.innerHTML = "<p>Fetching live spot data...</p>";
+
+  let output = `<h3>Live Spot Prices (Binance)</h3><ul>`;
+
+  for (const pair of pairs) {
+    try {
+      const response = await fetch(
+        `https://api.binance.com/api/v3/ticker/price?symbol=${pair}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Invalid symbol or unavailable");
+      }
+
+      const data = await response.json();
+      const utcTime = new Date().toUTCString();
+
+      output += `
+        <li>
+          <strong>${pair}</strong><br>
+          Price: ${data.price}<br>
+          Source: Binance Spot<br>
+          Time (UTC): ${utcTime}
+        </li>
+        <br>
+      `;
+    } catch (err) {
+      output += `
+        <li>
+          <strong>${pair}</strong><br>
+          ❌ Unable to fetch live data
+        </li>
+        <br>
+      `;
+    }
+  }
+
+  output += "</ul>";
+  results.innerHTML = output;
 });
