@@ -1,7 +1,7 @@
 export async function onRequest(context) {
   const { request } = context;
   const { searchParams } = new URL(request.url);
-  const symbol = searchParams.get("symbol");
+  let symbol = searchParams.get("symbol");
 
   if (!symbol) {
     return new Response(
@@ -10,13 +10,23 @@ export async function onRequest(context) {
     );
   }
 
-  const pair = symbol.toUpperCase().replace("USDT", "");
-  const url = `https://min-api.cryptocompare.com/data/price?fsym=${pair}&tsyms=USD`;
+  // تنظيف الإدخال
+  symbol = symbol.trim().toUpperCase();
+
+  // دعم أزواج USDT فقط حاليًا
+  if (!symbol.endsWith("USDT")) {
+    return new Response(
+      JSON.stringify({ error: "Only USDT pairs are supported" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const baseSymbol = symbol.replace("USDT", "");
+
+  const url = `https://min-api.cryptocompare.com/data/price?fsym=${baseSymbol}&tsyms=USD`;
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error("CryptoCompare API error");
-
     const data = await res.json();
 
     if (!data.USD) {
@@ -25,7 +35,7 @@ export async function onRequest(context) {
 
     return new Response(
       JSON.stringify({
-        symbol: symbol.toUpperCase(),
+        symbol: symbol,
         price_usd: data.USD,
         source: "CryptoCompare (public)",
         timestamp_utc: new Date().toISOString()
@@ -43,4 +53,3 @@ export async function onRequest(context) {
     );
   }
 }
-
