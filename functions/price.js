@@ -1,55 +1,78 @@
 export async function onRequest(context) {
-  const { request } = context;
-  const { searchParams } = new URL(request.url);
-  let symbol = searchParams.get("symbol");
+  const url = new URL(context.request.url);
+  const symbol = url.searchParams.get("symbol");
 
   if (!symbol) {
     return new Response(
       JSON.stringify({ error: "Missing symbol parameter" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
+      { status: 400 }
     );
   }
 
-  // تنظيف الإدخال
-  symbol = symbol.trim().toUpperCase();
+  const upperSymbol = symbol.toUpperCase();
 
-  // دعم أزواج USDT فقط حاليًا
-  if (!symbol.endsWith("USDT")) {
-    return new Response(
-      JSON.stringify({ error: "Only USDT pairs are supported" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  const baseSymbol = symbol.replace("USDT", "");
-
-  const url = `https://min-api.cryptocompare.com/data/price?fsym=${baseSymbol}&tsyms=USD`;
-
+  // 1️⃣ Binance Spot
   try {
-    const res = await fetch(url);
-    const data = await res.json();
-
-    if (!data.USD) {
-      throw new Error("Invalid symbol");
-    }
-
-    return new Response(
-      JSON.stringify({
-        symbol: symbol,
-        price_usd: data.USD,
-        source: "CryptoCompare (public)",
+    const r = await fetch(
+      `https://api.binance.com/api/v3/ticker/price?symbol=${upperSymbol}`,
+      { cf: { cacheTtl: 0 } }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      return jsonResponse({
+        symbol: upperSymbol,
+        price: d.price,
+        source: "Binance Spot",
         timestamp_utc: new Date().toISOString()
-      }),
-      { headers: { "Content-Type": "application/json" } }
-    );
+      });
+    }
+  } catch {}
 
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        error: "Failed to fetch live data",
-        details: err.message
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+  // 2️⃣ CoinGecko
+  try {
+    const base = upperSymbol.replace("USDT", "").toLowerCase();
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${base}&vs_currencies=usd`,
+      { cf: { cacheTtl: 0 } }
     );
-  }
+    if (r.ok) {
+      const d = await r.json();
+      if (d[base]?.usd) {
+        return jsonResponse({
+          symbol: upperSymbol,
+          price: d[base].usd.toString(),
+          source: "CoinGecko",
+          timestamp_utc: new Date().toISOString()
+        });
+      }
+    }
+  } catch {}
+
+  // 3️⃣ CoinCap
+  try {
+    const base = upperSymbol.replace("USDT", "").toLowerCase();
+    const r = await fetch(`https://api.coincap.io/v2/assets/${base}`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d.data?.priceUsd) {
+        return jsonResponse({
+          symbol: upperSymbol,
+          price: Number(d.data.priceUsd).toFixed(2),
+          source: "CoinCap",
+          timestamp_utc: new Date().toISOString()
+        });
+      }
+    }
+  } catch {}
+
+  return jsonResponse({
+    error: "Live market data unavailable. Analysis cannot be generated."
+  }, 503);
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
 }
